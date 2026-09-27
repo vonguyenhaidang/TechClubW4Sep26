@@ -150,12 +150,17 @@
   #nameInput::placeholder{color:var(--sub);}
   #nameInput:focus{border-color:var(--accent);}
   .fieldlabel{font-size:11.5px; color:var(--sub); flex:none;}
+  #brushSize{
+    width:90px; height:22px; accent-color:var(--accent); cursor:pointer; flex:none;
+    background:transparent;
+  }
 
   .btn{
     font-size:12px; font-weight:600; color:var(--ink); background:rgba(255,255,255,.06);
     border:1px solid var(--line); border-radius:10px; padding:7px 11px; cursor:pointer;
   }
   .btn.primary{background:var(--accent2); color:#fff; border-color:transparent;}
+  .btn.on{background:var(--accent); color:#241a06; border-color:transparent;}
   .btn:active{transform:scale(.96);}
   #hint{font-size:10.5px; color:var(--sub); text-align:center;}
 </style>
@@ -177,12 +182,16 @@
       <input type="text" id="nameInput" placeholder="Nhập tên của bạn" maxlength="14">
     </div>
     <div class="row">
+      <button class="btn" id="btnDraw">✏️ Vẽ tự do</button>
+      <span class="fieldlabel">🖌️ Cỡ bút:</span>
+      <input type="range" id="brushSize" min="2" max="60" value="7" step="1">
+      <span class="fieldlabel" id="brushSizeVal">7px</span>
       <button class="btn" id="btnRandom">✨ Trang trí tự động</button>
       <button class="btn" id="btnBinary">🔢 Mã nhị phân</button>
       <button class="btn" id="btnReset">↺ Làm lại</button>
       <button class="btn primary" id="btnCandle">🕯️ Thắp nến</button>
     </div>
-    <div id="hint">Kéo để xoay · Cuộn / chụm để phóng to · Chạm vào một khối để tô màu, dán biểu tượng cảm xúc, hoặc thêm ảnh · Ô cầu vồng = chọn bất kỳ màu nào · 😊+ mở bảng chọn biểu tượng cảm xúc · Giữ/chuột phải vào ô ảnh để xoá · 🔢 Mã nhị phân hiển thị bảng mã để bạn tô chữ và số bằng 2 màu khối · Nhập tên của bạn cho dải giấy thứ hai</div>
+    <div id="hint">Kéo để xoay · Cuộn / chụm để phóng to · Thân lồng đèn là khung vẽ trống — bật ✏️ Vẽ tự do rồi kéo để vẽ, hoặc chạm để dán biểu tượng/ảnh · Kéo thanh 🖌️ Cỡ bút để chỉnh nét vẽ to/nhỏ · Hàng khối trên cùng dùng để ghép mã nhị phân · Ô cầu vồng = chọn bất kỳ màu nào · 😊+ mở bảng chọn biểu tượng cảm xúc · Giữ/chuột phải vào ô ảnh để xoá · 🔢 Mã nhị phân hiển thị bảng mã cho hàng khối trên cùng · Nhập tên của bạn cho dải giấy thứ hai</div>
   </div>
 </div>
 <input type="file" id="fileInput" accept="image/*" style="display:none">
@@ -309,20 +318,21 @@
   const GAP = 0.9; // fraction of available space each block occupies (leaves a small seam, prevents z-fighting)
   const edge = rowH * GAP; // every block is a perfect cube with this side length
   const cubeGeo = new THREE.BoxGeometry(edge, edge, edge); // shared by every voxel — same cube everywhere
-  for(let lvl=0; lvl<LEVELS; lvl++){
+
+  // only the very top ring stays as individual blocks — a "byte strip" for binary.
+  // Everything below it becomes one smooth surface the kids can draw on freehand.
+  const TOP_LVL = LEVELS-1;
+  {
+    const lvl = TOP_LVL;
     const t = lvl/(LEVELS-1);
     const y = bodyBottom + lvl*rowH;
     const rad = radiusAt(t);
-    // how many blocks fit around this ring so each one comes out ~cube-shaped
-    // (chord width at that segment count ≈ the same edge length as the row height)
     const segsAtLevel = Math.max(RIBS_PER_RING, Math.round((2*Math.PI*rad*GAP) / edge));
     const angStep = (Math.PI*2)/segsAtLevel;
-    const ribStep = Math.max(1, Math.round(segsAtLevel / RIBS_PER_RING));
     for(let s=0;s<segsAtLevel;s++){
       const ang = s*angStep;
       const x = Math.cos(ang)*rad;
       const z = Math.sin(ang)*rad;
-      const isRib = (s % ribStep === 0);
       const mat = new THREE.MeshStandardMaterial({
         color: PAPER, roughness:0.65, metalness:0.05,
         emissive:0x000000, emissiveIntensity:0,
@@ -331,12 +341,45 @@
       const cube = new THREE.Mesh(cubeGeo, mat);
       cube.position.set(x,y,z);
       cube.lookAt(x*2, y, z*2); // face outward, away from center
-      // how strongly candlelight reaches this block: brightest at the belly, dim near the caps
-      cube.userData.glow = isRib ? 0.35 : Math.max(0.25, 1 - Math.pow(Math.abs(t-0.5)*2, 1.4));
-      cube.userData.isRib = isRib;
+      cube.userData.glow = 0.45;
+      cube.userData.isRib = false;
       lantern.add(cube);
       voxels.push(cube);
     }
+  }
+
+  // ---------------- blank drawable canvas (the rest of the body) ----------------
+  // A single smooth surface, following the same barrel profile as before, wrapped
+  // with a 2D canvas texture that kids paint on directly (freehand, stamps, photos).
+  const canvasTopY = bodyBottom + (TOP_LVL-1)*rowH + rowH*0.5; // meets the bottom edge of the top ring
+  const canvasBottomY = bodyBottom - rowH*0.5;
+  const profilePts = [];
+  const PROFILE_STEPS = 48;
+  for(let i=0;i<=PROFILE_STEPS;i++){
+    const y = canvasBottomY + (canvasTopY-canvasBottomY)*(i/PROFILE_STEPS);
+    const rad = radiusAt((y-bodyBottom)/(bodyTop-bodyBottom));
+    profilePts.push(new THREE.Vector2(rad, y));
+  }
+  const canvasGeo = new THREE.LatheGeometry(profilePts, 96);
+  const CANVAS_W = 1024, CANVAS_H = 420;
+  const paintCanvas = document.createElement('canvas');
+  paintCanvas.width = CANVAS_W; paintCanvas.height = CANVAS_H;
+  const paintCtx = paintCanvas.getContext('2d');
+  paintCtx.fillStyle = '#'+PAPER.toString(16).padStart(6,'0');
+  paintCtx.fillRect(0,0,CANVAS_W,CANVAS_H);
+  const paintTex = new THREE.CanvasTexture(paintCanvas);
+  const canvasMat = new THREE.MeshStandardMaterial({
+    map:paintTex, color:0xffffff, roughness:0.65, metalness:0.05,
+    emissive:0x000000, emissiveIntensity:0,
+    transparent:true, opacity:1, side:THREE.DoubleSide
+  });
+  const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat);
+  lantern.add(canvasMesh);
+  function paintUvToXY(uv){ return { x: uv.x*CANVAS_W, y: (1-uv.y)*CANVAS_H }; }
+  function resetPaintCanvas(){
+    paintCtx.fillStyle = '#'+PAPER.toString(16).padStart(6,'0');
+    paintCtx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    paintTex.needsUpdate = true;
   }
 
   // caps — sized to match the outermost voxel ring exactly, no seam gap
@@ -464,10 +507,45 @@
   let dragging=false, lastX=0, lastY=0, moved=false, downX=0, downY=0;
   let spinVel = 0; // how fast the view is currently being spun — feeds the streamer's flutter
   const dom = renderer.domElement;
+
+  // ---- freehand draw mode: while on, dragging paints the canvas instead of orbiting ----
+  let drawMode = false;
+  let painting = false, lastPaintUV = null;
+  const paintRaycaster = new THREE.Raycaster();
+  function castCanvas(clientX, clientY){
+    const rect = dom.getBoundingClientRect();
+    const m = new THREE.Vector2(((clientX-rect.left)/rect.width)*2-1, -((clientY-rect.top)/rect.height)*2+1);
+    paintRaycaster.setFromCamera(m, camera);
+    const hits = paintRaycaster.intersectObject(canvasMesh);
+    return hits.length ? hits[0] : null;
+  }
+  const btnDraw = document.getElementById('btnDraw');
+  btnDraw.addEventListener('click', ()=>{
+    drawMode = !drawMode;
+    btnDraw.classList.toggle('on', drawMode);
+  });
+
   dom.addEventListener('pointerdown', e=>{
+    if(drawMode){
+      // Draw mode owns the pointer completely — it never falls back to orbiting,
+      // even if this exact spot misses the paintable surface (e.g. right at its edge).
+      painting = true;
+      const hit = castCanvas(e.clientX, e.clientY);
+      lastPaintUV = hit ? hit.uv : null;
+      if(hit) dabAt(hit.uv);
+      return;
+    }
     dragging=true; moved=false; lastX=e.clientX; lastY=e.clientY; downX=e.clientX; downY=e.clientY;
   });
   window.addEventListener('pointermove', e=>{
+    if(painting){
+      const hit = castCanvas(e.clientX, e.clientY);
+      if(hit){
+        if(lastPaintUV) strokeBetween(lastPaintUV, hit.uv); else dabAt(hit.uv);
+        lastPaintUV = hit.uv;
+      }
+      return;
+    }
     if(!dragging) return;
     const dx = e.clientX-lastX, dy = e.clientY-lastY;
     if(Math.abs(e.clientX-downX)+Math.abs(e.clientY-downY) > 6) moved = true;
@@ -478,6 +556,7 @@
     updateCamera();
   });
   window.addEventListener('pointerup', e=>{
+    if(painting){ painting=false; lastPaintUV=null; return; }
     if(dragging && !moved) handlePick(e.clientX, e.clientY);
     dragging=false;
   });
@@ -523,25 +602,60 @@
     return tex;
   }
 
+  // paint onto the canvas surface: a color dab, an emoji stamp, or a photo stamp,
+  // using whatever tool/color is currently selected
+  let BRUSH_R = 7;
+  const brushSizeInput = document.getElementById('brushSize');
+  const brushSizeVal = document.getElementById('brushSizeVal');
+  brushSizeInput.addEventListener('input', (e)=>{
+    BRUSH_R = parseInt(e.target.value, 10);
+    brushSizeVal.textContent = BRUSH_R + 'px';
+  });
+  function dabAt(uv){
+    const {x,y} = paintUvToXY(uv);
+    if(mode === 'photo' && photoTexture && photoTexture.image){
+      const s = 92; paintCtx.drawImage(photoTexture.image, x-s/2, y-s/2, s, s);
+    } else if(mode === 'emoji' && emojiTexture && emojiTexture.image){
+      const s = 72; paintCtx.drawImage(emojiTexture.image, x-s/2, y-s/2, s, s);
+    } else {
+      paintCtx.fillStyle = '#'+currentColor.toString(16).padStart(6,'0');
+      paintCtx.beginPath(); paintCtx.arc(x,y,BRUSH_R,0,Math.PI*2); paintCtx.fill();
+    }
+    paintTex.needsUpdate = true;
+  }
+  function strokeBetween(uvA, uvB){
+    if(mode !== 'color'){ dabAt(uvB); return; } // stamps trail as repeated dabs, not a smeared line
+    const a = paintUvToXY(uvA), b = paintUvToXY(uvB);
+    paintCtx.strokeStyle = '#'+currentColor.toString(16).padStart(6,'0');
+    paintCtx.lineWidth = BRUSH_R*2; paintCtx.lineCap='round'; paintCtx.lineJoin='round';
+    paintCtx.beginPath(); paintCtx.moveTo(a.x,a.y); paintCtx.lineTo(b.x,b.y); paintCtx.stroke();
+    paintTex.needsUpdate = true;
+  }
+
   function handlePick(clientX, clientY){
     const rect = dom.getBoundingClientRect();
     mouse.x = ((clientX-rect.left)/rect.width)*2-1;
     mouse.y = -((clientY-rect.top)/rect.height)*2+1;
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(voxels);
-    if(!hits.length) return;
-    const v = hits[0].object;
-    if(mode === 'photo' && photoTexture){
-      v.material.map = photoTexture;
-      v.material.color.set(0xffffff);
-    } else if(mode === 'emoji' && emojiTexture){
-      v.material.map = emojiTexture;
-      v.material.color.set(0xffffff);
-    } else {
-      v.material.map = null;
-      v.material.color.setHex(currentColor);
+    const vHits = raycaster.intersectObjects(voxels);
+    if(vHits.length){
+      const v = vHits[0].object;
+      if(mode === 'photo' && photoTexture){
+        v.material.map = photoTexture;
+        v.material.color.set(0xffffff);
+      } else if(mode === 'emoji' && emojiTexture){
+        v.material.map = emojiTexture;
+        v.material.color.set(0xffffff);
+      } else {
+        v.material.map = null;
+        v.material.color.setHex(currentColor);
+      }
+      v.material.needsUpdate = true;
+      if(lit) applyGlowColors();
+      return;
     }
-    v.material.needsUpdate = true;
+    const cHits = raycaster.intersectObject(canvasMesh);
+    if(cHits.length) dabAt(cHits[0].uv);
     if(lit) applyGlowColors();
   }
 
@@ -755,6 +869,15 @@
         v.material.opacity = v.userData.isRib ? 1 : 0.92;
       }
     });
+    // the painted canvas surface: same gentle inner-glow treatment as the paper blocks
+    if(!lit){
+      canvasMat.emissiveIntensity = 0;
+      canvasMat.opacity = 1;
+    } else {
+      canvasMat.emissive.set(0xffb066);
+      canvasMat.emissiveIntensity = (0.12 + 0.32*0.38) * flicker;
+      canvasMat.opacity = 0.92;
+    }
   }
   document.getElementById('btnCandle').addEventListener('click', function(){
     lit = !lit;
@@ -781,6 +904,7 @@
       v.material.color.setHex(PAPER);
       v.material.needsUpdate = true;
     });
+    resetPaintCanvas();
     if(lit) applyGlowColors(1);
   });
 
@@ -829,7 +953,7 @@
       core.material.opacity = 0.5 * flicker;
       applyGlowColors(flicker);
     }
-    if(!dragging) lantern.rotation.y += 0.0007;
+    if(!dragging && !drawMode) lantern.rotation.y += 0.0007;
     updateFlagPhysics(dt);
     renderer.render(scene, camera);
   }
