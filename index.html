@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Voxel Lantern · Mid-Autumn Festival</title>
+<title>Logiscool · Wishing Lantern Game</title>
 <style>
   :root{
     --panel:#1c1826cc; --ink:#f4ecda; --sub:#c9bfa8;
@@ -377,7 +377,7 @@
 
   // ---------------- three.js scene ----------------
   const appEl = document.getElementById('app');
-  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, logarithmicDepthBuffer:true });
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, logarithmicDepthBuffer:true, preserveDrawingBuffer:true });
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   appEl.appendChild(renderer.domElement);
 
@@ -507,7 +507,8 @@
   }
   function uploadLanternDrawing(){
     if(!DRIVE_UPLOAD_URL || DRIVE_UPLOAD_URL.indexOf('PASTE_') === 0) return;
-    const dataUrl = paintCanvas.toDataURL('image/png');
+    renderer.render(scene, camera); // ensure the canvas reflects the current frame before capture
+    const dataUrl = renderer.domElement.toDataURL('image/png');
     fetch(DRIVE_UPLOAD_URL, {
       method:'POST',
       mode:'no-cors', // Apps Script response can't be read cross-origin; we don't need to read it
