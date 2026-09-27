@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Logiscool · Wishing Lantern Game</title>
+<title>Voxel Lantern · Mid-Autumn Festival</title>
 <style>
   :root{
     --panel:#1c1826cc; --ink:#f4ecda; --sub:#c9bfa8;
@@ -500,6 +500,59 @@
   // ---------------- send finished drawing to Google Drive ----------------
   // Paste your deployed Apps Script Web App URL below (see setup notes).
   const DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzyPJ3FsHKNBJTYYrrY0mi28Ts63YKMaPr7Z1jFkxylhBSEBQomSybRGjpXARE04_8P/exec';
+  function captureFullSceneDataURL(){
+    const W = renderer.domElement.clientWidth || window.innerWidth;
+    const H = renderer.domElement.clientHeight || window.innerHeight;
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const octx = out.getContext('2d');
+
+    // night-sky background, matching the page's CSS radial gradient
+    const grad = octx.createRadialGradient(W*0.78, H*0.08, 0, W*0.78, H*0.08, Math.max(W,H)*0.9);
+    grad.addColorStop(0, '#3a5878');
+    grad.addColorStop(0.22, '#1c3050');
+    grad.addColorStop(0.45, '#16294a');
+    grad.addColorStop(0.70, '#0c1a34');
+    grad.addColorStop(1, '#081226');
+    octx.fillStyle = grad;
+    octx.fillRect(0,0,W,H);
+
+    // stars, drawn exactly where they currently sit on screen
+    document.querySelectorAll('.star').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      if(r.width<=0) return;
+      octx.globalAlpha = parseFloat(getComputedStyle(el).opacity) || 0.7;
+      octx.fillStyle = '#fff';
+      octx.beginPath();
+      octx.arc(r.left+r.width/2, r.top+r.height/2, Math.max(r.width,r.height)/2, 0, Math.PI*2);
+      octx.fill();
+    });
+    octx.globalAlpha = 1;
+
+    // moon, drawn at its current on-screen position
+    const moonR = moonEl.getBoundingClientRect();
+    if(moonR.width>0){
+      const mx=moonR.left+moonR.width/2, my=moonR.top+moonR.height/2, mr=moonR.width/2;
+      const glow = octx.createRadialGradient(mx,my,mr*0.3, mx,my,mr*2.2);
+      glow.addColorStop(0,'rgba(255,222,150,0.45)');
+      glow.addColorStop(1,'rgba(255,222,150,0)');
+      octx.fillStyle = glow;
+      octx.beginPath(); octx.arc(mx,my,mr*2.2,0,Math.PI*2); octx.fill();
+
+      const moonGrad = octx.createRadialGradient(mx-mr*0.24,my-mr*0.32,mr*0.1, mx,my,mr);
+      moonGrad.addColorStop(0,'#fff9e6');
+      moonGrad.addColorStop(0.35,'#ffe9ad');
+      moonGrad.addColorStop(0.62,'#f3c56a');
+      moonGrad.addColorStop(1,'#d9a94f');
+      octx.fillStyle = moonGrad;
+      octx.beginPath(); octx.arc(mx,my,mr,0,Math.PI*2); octx.fill();
+    }
+
+    // the lantern render sits on top, transparent everywhere except the lantern itself
+    octx.drawImage(renderer.domElement, 0, 0, W, H);
+    return out.toDataURL('image/png');
+  }
+
   function makeLanternFilename(){
     const stamp = new Date().toISOString().replace('T','_').replace(/[:.]/g,'-').slice(0,19); // 2026-09-27_14-05-33
     const rand = Math.random().toString(36).slice(2,7); // 5-char random tag, avoids any collision
@@ -508,7 +561,7 @@
   function uploadLanternDrawing(){
     if(!DRIVE_UPLOAD_URL || DRIVE_UPLOAD_URL.indexOf('PASTE_') === 0) return;
     renderer.render(scene, camera); // ensure the canvas reflects the current frame before capture
-    const dataUrl = renderer.domElement.toDataURL('image/png');
+    const dataUrl = captureFullSceneDataURL();
     fetch(DRIVE_UPLOAD_URL, {
       method:'POST',
       mode:'no-cors', // Apps Script response can't be read cross-origin; we don't need to read it
