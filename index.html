@@ -499,7 +499,7 @@
 
   // ---------------- send finished drawing to Google Drive ----------------
   // Paste your deployed Apps Script Web App URL below (see setup notes).
-  const DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbwBBqyV11IWF5kTGpnjmdPWGs2TbDWuHmYNpFttu8GcnQxjYqUj6BWBooymZGabrgRT/exec';
+  const DRIVE_UPLOAD_URL = 'AKfycbwBBqyV11IWF5kTGpnjmdPWGs2TbDWuHmYNpFttu8GcnQxjYqUj6BWBooymZGabrgRT';
   function makeLanternFilename(){
     const stamp = new Date().toISOString().replace('T','_').replace(/[:.]/g,'-').slice(0,19); // 2026-09-27_14-05-33
     const rand = Math.random().toString(36).slice(2,7); // 5-char random tag, avoids any collision
