@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Logiscool - Lantern Wishing Game</title>
+<title>Voxel Lantern · Mid-Autumn Festival</title>
 <style>
   :root{
     --panel:#1c1826cc; --ink:#f4ecda; --sub:#c9bfa8;
@@ -496,6 +496,25 @@
   const canvasMesh = new THREE.Mesh(canvasGeo, canvasMat);
   lantern.add(canvasMesh);
   function paintUvToXY(uv){ return { x: uv.x*CANVAS_W, y: (1-uv.y)*CANVAS_H }; }
+
+  // ---------------- send finished drawing to Google Drive ----------------
+  // Paste your deployed Apps Script Web App URL below (see setup notes).
+  const DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbwBBqyV11IWF5kTGpnjmdPWGs2TbDWuHmYNpFttu8GcnQxjYqUj6BWBooymZGabrgRT/exec';
+  function makeLanternFilename(){
+    const stamp = new Date().toISOString().replace('T','_').replace(/[:.]/g,'-').slice(0,19); // 2026-09-27_14-05-33
+    const rand = Math.random().toString(36).slice(2,7); // 5-char random tag, avoids any collision
+    return `lantern_${stamp}_${rand}.png`;
+  }
+  function uploadLanternDrawing(){
+    if(!DRIVE_UPLOAD_URL || DRIVE_UPLOAD_URL.indexOf('PASTE_') === 0) return;
+    const dataUrl = paintCanvas.toDataURL('image/png');
+    fetch(DRIVE_UPLOAD_URL, {
+      method:'POST',
+      mode:'no-cors', // Apps Script response can't be read cross-origin; we don't need to read it
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ image: dataUrl, filename: makeLanternFilename() })
+    }).catch(()=>{ /* ignore network errors so the release animation is never blocked */ });
+  }
   function resetPaintCanvas(){
     paintCtx.fillStyle = '#'+PAPER.toString(16).padStart(6,'0');
     paintCtx.fillRect(0,0,CANVAS_W,CANVAS_H);
@@ -1089,6 +1108,7 @@
   btnRelease.addEventListener('click', ()=>{
     if(releasing) return;
     releasing = true; releaseElapsed = 0; wishShown = false;
+    uploadLanternDrawing();
     dragging = false; painting = false; lastPaintUV = null; drawMode = false;
     btnDraw.classList.remove('on');
     [btnRelease, btnDraw, document.getElementById('btnRandom'), document.getElementById('btnReset'), document.getElementById('btnCandle')]
